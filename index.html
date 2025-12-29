@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>月間デジタル出席簿</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* カスタムスクロールバー */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+
+        /* テーブルのスティッキー制御 */
+        .sticky-col-header {
+            position: sticky;
+            left: 0;
+            z-index: 30;
+            background-color: #f3f4f6; /* gray-100 */
+        }
+        .sticky-col {
+            position: sticky;
+            left: 0;
+            z-index: 20;
+            background-color: white;
+            border-right: 2px solid #e5e7eb;
+        }
+        /* 土日の色分け */
+        .sat { background-color: #eff6ff; color: #1e40af; }
+        .sun { background-color: #fef2f2; color: #991b1b; }
+
+        /* セルの状態色 */
+        .status-present { color: #15803d; font-weight: bold; } /* Green */
+        .status-late { color: #b45309; font-weight: bold; }    /* Orange */
+        .status-absent { color: #dc2626; font-weight: bold; background-color: #fee2e2; }  /* Red */
+        
+        /* 印刷設定 */
+        @media print {
+            .no-print { display: none; }
+            body { font-size: 10pt; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #000; padding: 2px; }
+            .sticky-col, .sticky-col-header { position: static; border: 1px solid #000; }
+            .overflow-x-auto { overflow: visible; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans h-screen flex flex-col">
+
+    <!-- ヘッダーエリア -->
+    <header class="bg-white shadow-sm border-b border-gray-200 p-4 z-40 no-print">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-2 sm:gap-4">
+                <!-- ハンバーガーメニューボタン -->
+                <button onclick="toggleMenu()" class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition focus:outline-none" title="メニューを開く">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+
+                <div class="flex items-center gap-2 sm:gap-4">
+                    <div class="p-2 bg-blue-600 text-white rounded-lg shadow">
+                        <i class="fas fa-calendar-check text-xl"></i>
+                    </div>
+                    <h1 class="text-xl font-bold text-gray-800">デジタル出席簿</h1>
+                </div>
+            </div>
+
+            <!-- 月操作 -->
+            <div class="flex items-center bg-gray-100 rounded-lg p-1">
+                <button onclick="changeMonth(-1)" class="p-2 hover:bg-white rounded shadow-sm transition">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <span id="currentDateDisplay" class="mx-4 font-bold text-lg min-w-[140px] text-center">
+                    <!-- JSで挿入 -->
+                </span>
+                <button onclick="changeMonth(1)" class="p-2 hover:bg-white rounded shadow-sm transition">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+
+            <!-- 操作ボタン群 -->
+            <div class="flex gap-2">
+                <button onclick="openStudentModal()" class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded hover:bg-gray-50 transition text-sm">
+                    <i class="fas fa-users"></i> <span class="hidden sm:inline">名簿管理</span>
+                </button>
+                <button onclick="exportCSV()" class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm shadow">
+                    <i class="fas fa-file-csv"></i> <span class="hidden sm:inline">CSV出力</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- メインエリア -->
+    <main class="flex-1 overflow-hidden relative w-full max-w-7xl mx-auto p-2 sm:p-4">
+        
+        <div class="bg-white rounded-lg shadow border border-gray-200 h-full flex flex-col">
+            <!-- 凡例 -->
+            <div class="p-3 border-b text-xs sm:text-sm flex flex-wrap gap-4 text-gray-600 bg-gray-50 rounded-t-lg">
+                <span class="flex items-center gap-1"><i class="far fa-circle text-green-700"></i> 出席</span>
+                <span class="flex items-center gap-1"><i class="fas fa-play fa-rotate-270 text-orange-700 text-[10px]"></i> 遅刻 (△)</span>
+                <span class="flex items-center gap-1"><i class="fas fa-times text-red-600"></i> 欠席</span>
+                <span class="ml-auto text-gray-400 text-xs self-center">※セルをクリックして切り替え</span>
+            </div>
+
+            <!-- テーブルコンテナ -->
+            <div class="flex-1 overflow-auto relative" id="tableContainer">
+                <table class="w-full border-collapse text-sm text-center min-w-max">
+                    <thead class="bg-gray-100 text-gray-600 sticky top-0 z-30 shadow-sm" id="calendarHeader">
+                        <!-- JSでヘッダー生成 -->
+                    </thead>
+                    <tbody id="attendanceBody" class="divide-y divide-gray-200">
+                        <!-- JSでボディ生成 -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- フッター集計情報 -->
+            <div class="p-3 border-t bg-gray-50 text-xs flex justify-end items-center gap-2 text-gray-500">
+                <i class="fas fa-cog text-gray-400"></i>
+                <span>欠席日数が</span>
+                <input type="number" id="alertThresholdInput" min="1" max="31" 
+                       class="w-12 p-1 border rounded text-center font-bold text-red-600 bg-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                       onchange="updateAlertThreshold(this.value)">
+                <span>日以上で赤く表示</span>
+            </div>
+        </div>
+    </main>
+
+    <!-- サイドメニュー (Drawer) -->
+    <div id="menuOverlay" onclick="toggleMenu()" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden transition-opacity"></div>
+    <aside id="sideMenu" class="fixed top-0 left-0 h-full w-80 bg-white shadow-2xl z-50 transform -translate-x-full transition-transform duration-300 overflow-y-auto no-print">
+        <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+            <h2 class="font-bold text-lg text-gray-800"><i class="fas fa-info-circle text-blue-600 mr-2"></i>メニュー & ヘルプ</h2>
+            <button onclick="toggleMenu()" class="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-200 transition">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6 space-y-8">
+            <!-- 使い方説明 -->
+            <section>
+                <h3 class="font-bold text-gray-800 mb-3 flex items-center border-b pb-2">
+                    <span class="bg-blue-100 text-blue-600 rounded px-2 py-1 text-xs mr-2">STEP</span>使い方
+                </h3>
+                <ol class="list-decimal list-inside text-sm text-gray-600 space-y-2 ml-1">
+                    <li><strong class="text-gray-800">名簿登録:</strong> 右上の「名簿管理」からメンバーを追加します。</li>
+                    <li><strong class="text-gray-800">出欠入力:</strong> カレンダーのセルをクリックして入力します。
+                        <div class="mt-1 ml-5 text-xs bg-gray-50 p-2 rounded border">
+                            1回: <span class="text-green-700 font-bold">○ 出席</span><br>
+                            2回: <span class="text-orange-600 font-bold">△ 遅刻</span><br>
+                            3回: <span class="text-red-600 font-bold">× 欠席</span><br>
+                            4回: 空白（リセット）
+                        </div>
+                    </li>
+                    <li><strong class="text-gray-800">月切替:</strong> 上部の矢印ボタンで月を移動できます。</li>
+                    <li><strong class="text-gray-800">CSV出力:</strong> 月末に「CSV出力」ボタンでデータをダウンロードして保存・提出できます。</li>
+                </ol>
+            </section>
+
+            <!-- 機能説明 -->
+            <section>
+                <h3 class="font-bold text-gray-800 mb-3 flex items-center border-b pb-2">
+                    <span class="bg-green-100 text-green-600 rounded px-2 py-1 text-xs mr-2">FEAT</span>機能説明
+                </h3>
+                <ul class="list-disc list-inside text-sm text-gray-600 space-y-2 ml-1">
+                    <li><strong>自動保存:</strong> 入力データはブラウザに即時保存されます。閉じてまた開いても続きから作業できます。</li>
+                    <li><strong>アラート機能:</strong> 欠席日数が設定値（画面下部で変更可）を超えると、赤色でハイライトされ注意を促します。</li>
+                    <li><strong>Excel互換:</strong> 出力されるCSVファイルはExcelでそのまま開ける形式（BOM付き）です。</li>
+                </ul>
+            </section>
+
+            <!-- 考えられる用途 -->
+            <section>
+                <h3 class="font-bold text-gray-800 mb-3 flex items-center border-b pb-2">
+                    <span class="bg-purple-100 text-purple-600 rounded px-2 py-1 text-xs mr-2">IDEA</span>考えられる用途
+                </h3>
+                <div class="grid grid-cols-1 gap-2 text-sm text-gray-600">
+                    <div class="flex items-start gap-2">
+                        <i class="fas fa-chalkboard-teacher mt-1 text-gray-400"></i>
+                        <span>学級担任の朝のホームルーム出欠確認</span>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <i class="fas fa-running mt-1 text-gray-400"></i>
+                        <span>部活動・スポーツクラブの参加記録</span>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <i class="fas fa-book-open mt-1 text-gray-400"></i>
+                        <span>学習塾、習い事、講座の出席管理</span>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <i class="fas fa-users-cog mt-1 text-gray-400"></i>
+                        <span>ボランティアやイベントスタッフのシフト管理</span>
+                    </div>
+                </div>
+            </section>
+
+            <div class="pt-6 border-t text-center">
+                <p class="text-xs text-gray-400">Simple Attendance Manager</p>
+                <p class="text-[10px] text-gray-300">Run entirely in your browser</p>
+            </div>
+        </div>
+    </aside>
+
+    <!-- 名簿管理モーダル -->
+    <div id="studentModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
+            <div class="p-4 border-b flex justify-between items-center">
+                <h3 class="font-bold text-lg"><i class="fas fa-user-edit mr-2"></i>名簿管理</h3>
+                <button onclick="closeStudentModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <div class="p-4 overflow-y-auto flex-1">
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="newStudentName" placeholder="新しい氏名を入力" 
+                        class="flex-1 border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        onkeypress="if(event.key === 'Enter') addStudent()">
+                    <button onclick="addStudent()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                        追加
+                    </button>
+                </div>
+                
+                <ul id="studentList" class="space-y-2">
+                    <!-- JSでリスト生成 -->
+                </ul>
+            </div>
+            
+            <div class="p-4 border-t bg-gray-50 rounded-b-xl text-right">
+                <button onclick="closeStudentModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- メッセージ用トースト -->
+    <div id="toast" class="fixed bottom-4 right-4 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition duration-300 z-50">
+        保存しました
+    </div>
+
+    <script>
+        // --- 設定・状態管理 ---
+        const CONSTANTS = {
+            STATUS: {
+                PRESENT: 'PRESENT',
+                LATE: 'LATE',
+                ABSENT: 'ABSENT',
+                NONE: null
+            },
+            SYMBOLS: {
+                PRESENT: '○',
+                LATE: '△',
+                ABSENT: '×',
+                NONE: ''
+            },
+            DEFAULT_ALERT_THRESHOLD: 3, // デフォルト欠席アラート閾値
+            STORAGE_KEY_STUDENTS: 'att_mgr_students',
+            STORAGE_KEY_DATA: 'att_mgr_data',
+            STORAGE_KEY_SETTINGS: 'att_mgr_settings'
+        };
+
+        let currentDate = new Date();
+        let students = [];
+        // データ構造: { "studentId_YYYY-MM-DD": "STATUS_CODE" }
+        let attendanceData = {};
+        
+        // 設定値
+        let alertThreshold = CONSTANTS.DEFAULT_ALERT_THRESHOLD;
+
+        // --- 初期化処理 ---
+        window.onload = function() {
+            loadData();
+            if (students.length === 0) {
+                // デモ用初期データ
+                students = [
+                    { id: generateId(), name: '山田 太郎' },
+                    { id: generateId(), name: '佐藤 花子' },
+                    { id: generateId(), name: '鈴木 一郎' },
+                    { id: generateId(), name: '田中 未来' },
+                    { id: generateId(), name: '伊藤 健太' }
+                ];
+                saveData();
+            }
+            renderApp();
+        };
+
+        // --- コア機能 ---
+
+        function renderApp() {
+            updateDateDisplay();
+            renderCalendarHeader();
+            renderAttendanceBody();
+            
+            // 設定値をUIに反映
+            document.getElementById('alertThresholdInput').value = alertThreshold;
+        }
+
+        // 月変更
+        function changeMonth(offset) {
+            currentDate.setMonth(currentDate.getMonth() + offset);
+            renderApp();
+        }
+
+        function updateDateDisplay() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth() + 1;
+            document.getElementById('currentDateDisplay').innerText = `${year}年 ${month}月`;
+        }
+
+        // カレンダーヘッダー描画
+        function renderCalendarHeader() {
+            const headerRow = document.createElement('tr');
+            
+            // 固定列（氏名）
+            const nameHeader = document.createElement('th');
+            nameHeader.className = "sticky-col-header p-3 min-w-[120px] border-b text-left pl-4 font-bold text-gray-700";
+            nameHeader.innerText = "氏名";
+            headerRow.appendChild(nameHeader);
+
+            const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+
+            // 日付列
+            for (let i = 1; i <= daysInMonth; i++) {
+                const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), i);
+                const dayOfWeek = date.getDay(); // 0:Sun, 6:Sat
+                const th = document.createElement('th');
+                th.className = "p-1 min-w-[32px] border font-normal text-xs sm:text-sm";
+                
+                // 土日判定
+                if (dayOfWeek === 0) th.classList.add('sun');
+                else if (dayOfWeek === 6) th.classList.add('sat');
+
+                th.innerHTML = `${i}<br><span class="text-[10px]">${['日','月','火','水','木','金','土'][dayOfWeek]}</span>`;
+                headerRow.appendChild(th);
+            }
+
+            // 集計ヘッダー
+            const summaryHeaders = [
+                { text: '出', color: 'text-green-700' }, 
+                { text: '欠', color: 'text-red-600' }, 
+                { text: '遅', color: 'text-orange-600' }
+            ];
+            summaryHeaders.forEach(h => {
+                const th = document.createElement('th');
+                th.className = `p-2 min-w-[40px] border font-bold ${h.color} bg-gray-50`;
+                th.innerText = h.text;
+                headerRow.appendChild(th);
+            });
+
+            const thead = document.getElementById('calendarHeader');
+            thead.innerHTML = '';
+            thead.appendChild(headerRow);
+        }
+
+        // 出席簿ボディ描画
+        function renderAttendanceBody() {
+            const tbody = document.getElementById('attendanceBody');
+            tbody.innerHTML = '';
+            const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth() + 1;
+
+            students.forEach(student => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-gray-50 transition-colors";
+
+                // 氏名列
+                const tdName = document.createElement('td');
+                tdName.className = "sticky-col p-2 text-left pl-4 border-b font-medium text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis";
+                tdName.innerText = student.name;
+                tr.appendChild(tdName);
+
+                // 統計用カウンター
+                let stats = { present: 0, absent: 0, late: 0 };
+
+                // 日付セル
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const dateKey = `${student.id}_${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                    const status = attendanceData[dateKey] || CONSTANTS.STATUS.NONE;
+                    
+                    // 統計加算
+                    if (status === CONSTANTS.STATUS.PRESENT) stats.present++;
+                    if (status === CONSTANTS.STATUS.ABSENT) stats.absent++;
+                    if (status === CONSTANTS.STATUS.LATE) stats.late++;
+
+                    const td = document.createElement('td');
+                    td.className = "border cursor-pointer select-none text-base sm:text-lg transition-colors duration-100";
+                    
+                    // 状態に応じたスタイル適用
+                    if (status === CONSTANTS.STATUS.PRESENT) {
+                        td.innerHTML = `<i class="far fa-circle text-green-600"></i>`; // ○
+                        td.classList.add('bg-green-50');
+                    } else if (status === CONSTANTS.STATUS.LATE) {
+                        td.innerHTML = `<i class="fas fa-play fa-rotate-270 text-orange-600 text-xs"></i>`; // △
+                        td.classList.add('bg-orange-50');
+                    } else if (status === CONSTANTS.STATUS.ABSENT) {
+                        td.innerHTML = `<i class="fas fa-times text-red-500"></i>`; // ×
+                        td.classList.add('status-absent');
+                    }
+
+                    // 土日背景の微調整（未入力時のみ）
+                    if (!status) {
+                        const date = new Date(year, month - 1, i);
+                        const day = date.getDay();
+                        if (day === 0) td.classList.add('bg-red-50/30');
+                        else if (day === 6) td.classList.add('bg-blue-50/30');
+                    }
+
+                    // クリックイベント
+                    td.onclick = () => toggleStatus(dateKey, td);
+                    tr.appendChild(td);
+                }
+
+                // 集計列の描画
+                const summaryConfig = ['present', 'absent', 'late'];
+                summaryConfig.forEach(key => {
+                    const td = document.createElement('td');
+                    td.className = "border font-bold text-gray-600 bg-gray-50/50";
+                    td.innerText = stats[key];
+                    
+                    // 欠席アラート（設定値 alertThreshold を使用）
+                    if (key === 'absent' && stats[key] >= alertThreshold) {
+                        td.classList.add('bg-red-100', 'text-red-600');
+                        // 名前も少し赤くする
+                        tdName.classList.add('text-red-600', 'bg-red-50');
+                    }
+                    tr.appendChild(td);
+                });
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        // ステータス切り替えロジック
+        function toggleStatus(key, cellElement) {
+            const current = attendanceData[key];
+            let next = CONSTANTS.STATUS.PRESENT;
+
+            if (current === CONSTANTS.STATUS.PRESENT) next = CONSTANTS.STATUS.LATE;
+            else if (current === CONSTANTS.STATUS.LATE) next = CONSTANTS.STATUS.ABSENT;
+            else if (current === CONSTANTS.STATUS.ABSENT) next = CONSTANTS.STATUS.NONE;
+            
+            if (next === CONSTANTS.STATUS.NONE) {
+                delete attendanceData[key];
+            } else {
+                attendanceData[key] = next;
+            }
+
+            saveData();
+            // パフォーマンスのため、全体再描画ではなく計算して更新する方が良いが
+            // 今回はコードの単純化のため全体再描画（React的な動き）を採用
+            // ※行数が増えると重くなるので、実運用では行単位の更新推奨
+            renderAttendanceBody(); 
+        }
+
+        // --- 設定変更 ---
+        function updateAlertThreshold(val) {
+            const num = parseInt(val, 10);
+            if (!isNaN(num) && num > 0) {
+                alertThreshold = num;
+                saveData();
+                renderAttendanceBody();
+            }
+        }
+
+        // --- データ管理 (LocalStorage) ---
+
+        function saveData() {
+            localStorage.setItem(CONSTANTS.STORAGE_KEY_STUDENTS, JSON.stringify(students));
+            localStorage.setItem(CONSTANTS.STORAGE_KEY_DATA, JSON.stringify(attendanceData));
+            // 設定値も保存
+            localStorage.setItem(CONSTANTS.STORAGE_KEY_SETTINGS, JSON.stringify({ alertThreshold }));
+        }
+
+        function loadData() {
+            const s = localStorage.getItem(CONSTANTS.STORAGE_KEY_STUDENTS);
+            const d = localStorage.getItem(CONSTANTS.STORAGE_KEY_DATA);
+            const settings = localStorage.getItem(CONSTANTS.STORAGE_KEY_SETTINGS);
+
+            if (s) students = JSON.parse(s);
+            if (d) attendanceData = JSON.parse(d);
+            if (settings) {
+                const parsedSettings = JSON.parse(settings);
+                if (parsedSettings.alertThreshold) {
+                    alertThreshold = parsedSettings.alertThreshold;
+                }
+            }
+        }
+
+        function generateId() {
+            return Math.random().toString(36).substr(2, 9);
+        }
+
+        // --- CSVエクスポート ---
+        function exportCSV() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth() + 1;
+            const daysInMonth = new Date(year, month, 0).getDate();
+            
+            // ヘッダー行
+            let csvContent = "氏名";
+            for (let i = 1; i <= daysInMonth; i++) csvContent += `,${month}/${i}`;
+            csvContent += ",出席日数,欠席日数,遅刻回数\n";
+
+            // データ行
+            students.forEach(student => {
+                let row = `"${student.name}"`;
+                let p = 0, a = 0, l = 0;
+
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const key = `${student.id}_${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                    const status = attendanceData[key];
+                    let symbol = "";
+
+                    if (status === CONSTANTS.STATUS.PRESENT) { symbol = "○"; p++; }
+                    else if (status === CONSTANTS.STATUS.LATE) { symbol = "△"; l++; }
+                    else if (status === CONSTANTS.STATUS.ABSENT) { symbol = "×"; a++; }
+                    
+                    row += `,${symbol}`;
+                }
+                row += `,${p},${a},${l}\n`;
+                csvContent += row;
+            });
+
+            // BOM付与（Excel文字化け対策）
+            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const blob = new Blob([bom, csvContent], { type: "text/csv" });
+            const url = window.URL.createObjectURL(blob);
+            
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `出席簿_${year}年${month}月.csv`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+            
+            showToast("CSVをダウンロードしました");
+        }
+
+        // --- 名簿管理 UI ---
+        
+        function openStudentModal() {
+            renderStudentList();
+            document.getElementById('studentModal').classList.remove('hidden');
+        }
+
+        function closeStudentModal() {
+            document.getElementById('studentModal').classList.add('hidden');
+            renderApp(); // 変更反映
+        }
+
+        function renderStudentList() {
+            const list = document.getElementById('studentList');
+            list.innerHTML = '';
+            students.forEach((s, index) => {
+                const li = document.createElement('li');
+                li.className = "flex justify-between items-center bg-gray-50 p-2 rounded border";
+                li.innerHTML = `
+                    <span>${s.name}</span>
+                    <button onclick="removeStudent(${index})" class="text-red-500 hover:text-red-700 px-2">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        function addStudent() {
+            const input = document.getElementById('newStudentName');
+            const name = input.value.trim();
+            if (name) {
+                students.push({ id: generateId(), name: name });
+                input.value = '';
+                saveData();
+                renderStudentList();
+                showToast("追加しました");
+            }
+        }
+
+        function removeStudent(index) {
+            if (confirm(`「${students[index].name}」を削除しますか？\n※過去の出席データは保持されますが表示されなくなります。`)) {
+                students.splice(index, 1);
+                saveData();
+                renderStudentList();
+            }
+        }
+
+        // --- メニュー制御 ---
+        function toggleMenu() {
+            const menu = document.getElementById('sideMenu');
+            const overlay = document.getElementById('menuOverlay');
+            
+            if (menu.classList.contains('-translate-x-full')) {
+                // Open
+                menu.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+            } else {
+                // Close
+                menu.classList.add('-translate-x-full');
+                overlay.classList.add('hidden');
+            }
+        }
+
+        // --- ユーティリティ ---
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                t.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+    </script>
+</body>
+</html>
